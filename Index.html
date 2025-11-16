@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <!-- 
+      CRITICAL FOR MOBILE: 
+      - width=device-width: Sets the width to the device's screen.
+      - initial-scale=1.0: Ensures no zooming.
+      - user-scalable=no: Stops pinch-to-zoom, which interferes with touch.
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
+    <title>DMT 3D Fractal Engine (FIXED)</title>
+    
+    <style>
+        /*
+          CSS Reset:
+          Remove all default margins and padding.
+        */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        /*
+          Make the body and html take up the *full* screen.
+          - height: 100%: Standard way.
+          - overflow: hidden: CRITICAL. This stops the browser from
+            letting you "pull" or "bounce" the webpage, which
+            breaks the fullscreen illusion.
+        */
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #000; /* Pure black background */
+            cursor: none; /* Hide the cursor, it gets in the way */
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /*
+          Canvas Styling:
+          - position: fixed: Pins it to the viewport.
+          - z-index: 1: CRITICAL. This places the canvas *behind* the UI.
+        */
+        #simulationCanvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: #000;
+            touch-action: none; /* Important for mobile touch */
+            z-index: 1; /* Behind the UI */
+        }
+        
+        /*
+        ========================================================================
+        NEW UI STYLES
+        ========================================================================
+        */
+        
+        /* The "Bubble" Button */
+        #menu-toggle {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 11; /* Above canvas and panel */
+            width: 120px;
+            height: 44px;
+            background-color: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 22px; /* Pill shape */
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 16px;
+            font-weight: 500;
+            cursor: pointer;
+            
+            /* Glassmorphism */
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            
+            /* Transitions */
+            transition: all 0.3s ease;
+            
+            /* Center text */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            -webkit-tap-highlight-color: transparent; /* Remove blue flash on tap */
+        }
+        
+        #menu-toggle:active {
+            transform: scale(0.95);
+        }
+
+        /* The Control Panel */
+        #control-panel {
+            position: fixed;
+            top: 80px; /* Below the bubble */
+            left: 20px;
+            z-index: 10; /* Above canvas */
+            
+            width: 300px;
+            padding: 20px;
+            background-color: rgba(30, 30, 30, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            
+            /* Glassmorphism */
+            backdrop-filter: blur(15px);
+            -webkit-backdrop-filter: blur(15px);
+            
+            /* Hide by default */
+            opacity: 0;
+            transform: translateY(-20px);
+            visibility: hidden;
+            
+            /* Transitions */
+            transition: opacity 0.4s ease, transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.4s;
+        }
+        
+        /* "open" class added by JS */
+        #control-panel.open {
+            opacity: 1;
+            transform: translateX(0);
+            visibility: visible;
+        }
+        
+        /* UI Control Styling */
+        .control-group {
+            margin-bottom: 16px;
+        }
+        
+        .control-group label {
+            display: block;
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.7);
+            margin-bottom: 8px;
+        }
+        
+        .control-group .value-display {
+            color: rgba(255, 255, 255, 1);
+            font-weight: 600;
+            float: right; /* Show value on the right */
+        }
+        
+        /*
+        ========================================================================
+        EXHAUSTIVE CUSTOM SLIDER STYLES
+        ========================================================================
+        */
+        input[type="range"] {
+            -webkit-appearance: none; /* Override default */
+            appearance: none;
+            width: 100%;
+            height: 4px; /* Track height */
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 2px;
+            outline: none;
+            cursor: pointer;
+        }
+
+        /* WebKit (Chrome, Safari, Edge) Thumb */
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px; /* Thumb width */
+            height: 20px; /* Thumb height */
+            background: #fff;
+            border: 2px solid rgba(0, 0, 0, 0.5);
+            border-radius: 50%; /* Circle */
+            margin-top: -8px; /* Center thumb on track */
+            transition: all 0.1s ease;
+        }
+        
+        input[type="range"]::-webkit-slider-thumb:active {
+            transform: scale(1.2);
+            box-shadow: 0 0 10px #fff;
+        }
+
+        /* Firefox Thumb */
+        input[type="range"]::-moz-range-thumb {
+            width: 18px; /* Slightly different for FF */
+            height: 18px;
+            background: #fff;
+            border: 2px solid rgba(0, 0, 0, 0.5);
+            border-radius: 50%;
+            cursor: pointer;
+        }
+        
+        /*
+        ========================================================================
+        NEW SWITCH AND BUTTON STYLES
+        ========================================================================
+        */
+        
+        /* NEW: Switch for Touch Mode */
+        .switch-field {
+            display: flex;
+            overflow: hidden;
+            border-radius: 8px;
+            background-color: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .switch-field input {
+            position: absolute !important;
+            clip: rect(0, 0, 0, 0);
+            height: 1px;
+            width: 1px;
+            border: 0;
+            overflow: hidden;
+        }
+
+        .switch-field label {
+            flex: 1;
+            text-align: center;
+            font-size: 13px;
+            font-weight: 500;
+            color: rgba(255, 255, 255, 0.6);
+            padding: 8px 0;
+            margin-bottom: 0;
+            cursor: pointer;
+            transition: color 0.2s ease;
+        }
+        
+        .switch-field input:checked + label {
+            background-color: rgba(255, 255, 255, 0.2);
+            color: #fff;
+            box-shadow: inset 0 0 5px rgba(0,0,0,0.1);
+        }
+        
+        /* NEW: Clear Button */
+        #clear-button {
+            width: 100%;
+            padding: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #fff;
+            background-color: rgba(255, 80, 80, 0.7); /* Red */
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        
+        #clear-button:hover {
+            background-color: rgba(255, 80, 80, 1);
+        }
+        
+        /* NEW: Particle Count Display */
+        #particle-info {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.5);
+            text-align: center;
+            margin-top: 16px;
+        }
+        
+    </style>
+</head>
+<body class="bg-black">
+
+    <!-- 
+    NEW UI HTML 
+    -->
+    
+    <!-- The "Bubble" Toggle Button -->
+    <button id="menu-toggle">D-M-Tweak</button>
+    
+    <!-- The Control Panel (hidden by default) -->
+    <div id="control-panel">
+        
+        <!-- Touch Mode Switch -->
+        <div class="control-group">
+            <label style="margin-bottom: 10px;">Touch Mode</label>
+            <div class="switch-field">
+                <input type="radio" id="mode-attract" name="touch-mode" value="attract" checked>
+                <label for="mode-attract">Attract</label>
+                <input type="radio" id="mode-repel" name="touch-mode" value="repel">
+                <label for="mode-repel">Repel</label>
+            </div>
+        </div>
+
+        <!-- NEW: Tunnel Depth (Focal Length) -->
+        <div class="control-group">
+            <label for="focal-slider">Tunnel Depth <span class="value-display" id="focal-value">300</span></label>
+            <input type="range" id="focal-slider" min="50" max="1000" step="10" value="300">
+        </div>
+
+        <!-- Symmetry Folds -->
+        <div class="control-group">
+            <label for="folds-slider">Symmetry Folds <span class="value-display" id="folds-value">6</span></label>
+            <input type="range" id="folds-slider" min="2" max="16" step="1" value="6">
+        </div>
+        
+        <!-- Base Population -->
+        <div class="control-group">
+            <label for="count-slider">Base Population <span class="value-display" id="count-value">200</span></label>
+            <input type="range" id="count-slider" min="50" max="1000" step="10" value="200">
+        </div>
+        
+        <!-- Fade Speed -->
+        <div class="control-group">
+            <label for="fade-slider">Fade Speed <span class="value-display" id="fade-value">0.10</span></label>
+            <input type="range" id="fade-slider" min="0.01" max="0.3" step="0.01" value="0.1">
+        </div>
+        
+        <!-- Color Speed -->
+        <div class="control-group">
+            <label for="hue-slider">Color Speed <span class="value-display" id="hue-value">2</span></label>
+            <input type="range" id="hue-slider" min="0" max="10" step="0.1" value="2">
+        </div>
+        
+        <!-- Clear Button -->
+        <div class="control-group" style="margin-top: 20px;">
+            <button id="clear-button">Clear Simulation</button>
+        </div>
+        
+        <!-- Particle Count -->
+        <div id="particle-info">
+            Particle Count: <span id="particle-count">0</span>
+        </div>
+        
+    </div>
+
+    <!-- The canvas (z-index: 1) -->
+    <canvas id="simulationCanvas"></canvas>
+
+    <!-- 
+    ================================================================================
+    
+    THE JAVASCRIPT GIGA-MONOLITH (v7 - 3D PERSPECTIVE ENGINE)
+    
+    This is the absolute limit. It contains:
+    1. A full UI with sliders, toggles, and buttons.
+    2. A new, complete 3D VECTOR physics engine.
+    3. A 3D fractal-spawning, stateful particle system.
+    4. A new 3D perspective projection renderer.
+    5. The *original* 2D kaleidoscopic renderer, now running *on top of* the 3D.
+    6. Dual-mode 3D touch interaction (Attract/Repel).
+    
+    This code is exhaustive. This is the weapon.
+    
+    ================================================================================
+    -->
+    <script>
+        // We wrap everything in an IIFE (Immediately Invoked Function Expression)
+        // to avoid polluting the global namespace.
+        (function() {
+            
+            // --- SECTION 1: SETUP & GLOBAL STATE ---
+            
+            console.log("Initializing DMT 3D Fractal Engine (v7 - FIXED)...");
+            
+            // --- Canvas Setup ---
+            const canvas = document.getElementById('simulationCanvas');
+            const ctx = canvas.getContext('2d');
+            const dpr = window.devicePixelRatio || 1;
+            let width = window.innerWidth;
+            let height = window.innerHeight;
+            
+            canvas.width = width * dpr;
+            canvas.height = height * dpr;
+            ctx.scale(dpr, dpr);
+            canvas.style.width = `${width}px`;
+            canvas.style.height = `${height}px`;
+            
+            // --- NEW UI Element Selectors ---
+            const menuToggle = document.getElementById('menu-toggle');
+            const controlPanel = document.getElementById('control-panel');
+            
+            const focalSlider = document.getElementById('focal-slider');
+            const focalValue = document.getElementById('focal-value');
+            
+            const foldsSlider = document.getElementById('folds-slider');
+            const foldsValue = document.getElementById('folds-value');
+            
+            const countSlider = document.getElementById('count-slider');
+            const countValue = document.getElementById('count-value');
+            
+            const fadeSlider = document.getElementById('fade-slider');
+            const fadeValue = document.getElementById('fade-value');
+            
+            const hueSlider = document.getElementById('hue-slider');
+            const hueValue = document.getElementById('hue-value');
+            
+            const modeAttract = document.getElementById('mode-attract');
+            const modeRepel = document.getElementById('mode-repel');
+            
+            const clearButton = document.getElementById('clear-button');
+            const particleCountDisplay = document.getElementById('particle-count');
+
+            // --- Simulation State ---
+            let particles = [];
+            let hue = 0; // Global hue for color cycling
+            
+            // NEW: The "Vanishing Point" (moves with touch)
+            const vanishingPoint = {
+                x: width / 2,
+                y: height / 2,
+                targetX: width / 2,
+                targetY: height / 2
+            };
+            let isTouching = false;
+            
+            // --- Simulation Config (Now controlled by UI) ---
+            const config = {
+                PARTICLE_COUNT: 200,      
+                ORIGIN_LERP_SPEED: 0.1,   
+                SYMMETRY_FOLDS: 6,        
+                SPAWN_PER_FRAME: 2,
+                PARTICLE_SPEED: 2, // 3D speed
+                PARTICLE_DRAG: 0.95,
+                PARTICLE_LIFESPAN: 250,
+                FADE_AMOUNT: 0.1,         
+                HUE_SPEED: 2,
+                WANDER_STRENGTH: 0.05,
+                PULL_STRENGTH: 0.005, // Pull towards z=0
+                TOUCH_MODE: 'attract', // 'attract' or 'repel'
+                MAX_GENERATION: 2, 
+                CHILD_SPAWN_COUNT: 6,
+                FOCAL_LENGTH: 300 // NEW: 3D Tunnel Depth
+            };
+            
+            let FOLD_ANGLE = (Math.PI * 2) / config.SYMMETRY_FOLDS;
+
+            // --- SECTION 2: NEW 3D VECTOR CLASS ---
+            
+            /**
+             * A comprehensive 3D Vector class for physics.
+             * This is the new mathematical heart of the simulation.
+             */
+            class Vector3 {
+                constructor(x = 0, y = 0, z = 0) {
+                    this.x = x;
+                    this.y = y;
+                    this.z = z;
+                }
+                
+                add(v) { this.x += v.x; this.y += v.y; this.z += v.z; return this; }
+                sub(v) { this.x -= v.x; this.y -= v.y; this.z -= v.z; return this; }
+                mul(s) { this.x *= s; this.y *= s; this.z *= s; return this; }
+                div(s) { if (s !== 0) { this.x /= s; this.y /= s; this.z /= s; } return this; }
+                
+                mag() { return Math.sqrt(this.x * this.x + this.y * this.y + this.z * this.z); }
+                magSq() { return this.x * this.x + this.y * this.y + this.z * this.z; }
+                
+                normalize() { const m = this.mag(); if (m > 0) { this.div(m); } return this; }
+                setMag(m) { return this.normalize().mul(m); }
+                
+                limit(max) {
+                    const mSq = this.magSq();
+                    if (mSq > max * max) { this.div(Math.sqrt(mSq)).mul(max); }
+                    return this;
+                }
+                
+                static from(v) { return new Vector3(v.x, v.y, v.z); }
+                
+                // NEW: Random 3D Vector (for spherical spawning)
+                static random3D() {
+                    const angle1 = Math.random() * Math.PI * 2;
+                    const angle2 = Math.random() * Math.PI * 2;
+                    return new Vector3(
+                        Math.cos(angle1) * Math.sin(angle2),
+                        Math.sin(angle1) * Math.sin(angle2),
+                        Math.cos(angle2)
+                    );
+                }
+                
+                static sub(v1, v2) { return new Vector3(v1.x - v2.x, v1.y - v2.y, v1.z - v2.z); }
+            }
+
+            // --- SECTION 3: PARTICLE CLASS (NOW 3D) ---
+
+            /**
+             * The Particle Class
+             * Now fully 3D, stateful, and fractal.
+             */
+            class Particle {
+                constructor(x, y, z, generation = 0) {
+                    // 3D position and velocity
+                    this.pos = new Vector3(x, y, z);
+                    this.prevPos = new Vector3(x, y, z); // For line drawing
+                    this.vel = Vector3.random3D().mul(config.PARTICLE_SPEED * (Math.random() + 0.5));
+                    this.acc = new Vector3(0, 0, 0);
+                    
+                    this.generation = generation;
+                    this.trulyDead = false;
+                    
+                    // Children are smaller and live shorter lives
+                    if (this.generation > 0) {
+                        this.lifespan = (config.PARTICLE_LIFESPAN * 0.4) + Math.random() * 20;
+                    } else {
+                        this.lifespan = config.PARTICLE_LIFESPAN + Math.random() * 50;
+                    }
+                    this.age = 0;
+                }
+                
+                applyForce(force) { this.acc.add(force); }
+                
+                update() {
+                    if (this.trulyDead) return; 
+                    
+                    this.prevPos = Vector3.from(this.pos);
+                    
+                    this.vel.mul(config.PARTICLE_DRAG);
+                    this.vel.add(this.acc);
+                    this.vel.limit(config.PARTICLE_SPEED * 2);
+                    this.pos.add(this.vel);
+                    
+                    this.acc.mul(0);
+                    this.age++;
+                }
+                
+                spawnChildren(newBorns) {
+                    if (this.generation >= config.MAX_GENERATION) {
+                        this.trulyDead = true;
+                        return;
+                    }
+                    
+                    this.trulyDead = true; 
+                    
+                    // Spawn a sphere of children
+                    for (let i = 0; i < config.CHILD_SPAWN_COUNT; i++) {
+                        const child = new Particle(this.pos.x, this.pos.y, this.pos.z, this.generation + 1);
+                        
+                        // Children fly outwards in 3D
+                        child.vel = Vector3.random3D().mul(this.vel.mag() * 0.5 + 1);
+                        newBorns.push(child);
+                    }
+                }
+                
+                isDead() { return this.trulyDead; }
+                isReadyToSpawn() { return !this.trulyDead && this.age > this.lifespan; }
+            }
+            
+            // --- SECTION 4: NEW UI SETUP ---
+            
+            function setupUI() {
+                // Toggle Menu
+                menuToggle.addEventListener('click', () => {
+                    controlPanel.classList.toggle('open');
+                });
+                
+                // --- Stop touch events from passing *through* the UI to the canvas ---
+                const stopPropagation = (e) => e.stopPropagation();
+                controlPanel.addEventListener('touchstart', stopPropagation, { passive: false });
+                controlPanel.addEventListener('touchmove', stopPropagation, { passive: false });
+                controlPanel.addEventListener('mousedown', stopPropagation);
+                controlPanel.addEventListener('mousemove', stopPropagation);
+
+                // --- Link Sliders to Config ---
+                
+                // Touch Mode
+                modeAttract.addEventListener('change', () => config.TOUCH_MODE = 'attract');
+                modeRepel.addEventListener('change', () => config.TOUCH_MODE = 'repel');
+                
+                // NEW: Focal Length
+                focalSlider.value = config.FOCAL_LENGTH;
+                focalValue.textContent = config.FOCAL_LENGTH;
+                focalSlider.addEventListener('input', (e) => {
+                    config.FOCAL_LENGTH = parseInt(e.target.value);
+                    focalValue.textContent = config.FOCAL_LENGTH;
+                });
+                
+                // Folds Slider
+                foldsSlider.value = config.SYMMETRY_FOLDS;
+                foldsValue.textContent = config.SYMMETRY_FOLDS;
+                foldsSlider.addEventListener('input', (e) => {
+                    config.SYMMETRY_FOLDS = parseInt(e.target.value);
+                    foldsValue.textContent = config.SYMMETRY_FOLDS;
+                    FOLD_ANGLE = (Math.PI * 2) / config.SYMMETRY_FOLDS;
+                });
+                
+                // Count Slider
+                countSlider.value = config.PARTICLE_COUNT;
+                countValue.textContent = config.PARTICLE_COUNT;
+                countSlider.addEventListener('input', (e) => {
+                    config.PARTICLE_COUNT = parseInt(e.target.value);
+                    countValue.textContent = config.PARTICLE_COUNT;
+                });
+                
+                // Fade Slider
+                fadeSlider.value = config.FADE_AMOUNT;
+                fadeValue.textContent = config.FADE_AMOUNT.toFixed(2);
+                fadeSlider.addEventListener('input', (e) => {
+                    config.FADE_AMOUNT = parseFloat(e.target.value);
+                    fadeValue.textContent = config.FADE_AMOUNT.toFixed(2);
+                });
+                
+                // Hue Slider
+                hueSlider.value = config.HUE_SPEED;
+                hueValue.textContent = config.HUE_SPEED.toFixed(1);
+                hueSlider.addEventListener('input', (e) => {
+                    config.HUE_SPEED = parseFloat(e.target.value);
+                    hueValue.textContent = config.HUE_SPEED.toFixed(1);
+                });
+                
+                // Clear Button
+                clearButton.addEventListener('click', () => {
+                    particles = []; // Nuke all particles
+                });
+            }
+
+            // --- SECTION 5: CANVAS EVENT LISTENERS ---
+            
+            function handleInteractionStart(e) {
+                e.preventDefault(); 
+                isTouching = true;
+                const touchEvent = e.touches ? e.touches[0] : e;
+                vanishingPoint.targetX = touchEvent.clientX;
+                vanishingPoint.targetY = touchEvent.clientY;
+            }
+
+            function handleInteractionMove(e) {
+                e.preventDefault(); 
+                if (!isTouching) return;
+                const touchEvent = e.touches ? e.touches[0] : e;
+                vanishingPoint.targetX = touchEvent.clientX;
+                vanishingPoint.targetY = touchEvent.clientY;
+            }
+
+            function handleInteractionEnd(e) {
+                isTouching = false;
+                vanishingPoint.targetX = width / 2;
+                vanishingPoint.targetY = height / 2;
+            }
+            
+            // Bind the listeners
+            canvas.addEventListener('touchstart', handleInteractionStart, { passive: false });
+            canvas.addEventListener('touchmove', handleInteractionMove, { passive: false });
+            canvas.addEventListener('touchend', handleInteractionEnd);
+            canvas.addEventListener('touchcancel', handleInteractionEnd);
+
+            canvas.addEventListener('mousedown', handleInteractionStart);
+            canvas.addEventListener('mousemove', handleInteractionMove);
+            canvas.addEventListener('mouseup', handleInteractionEnd);
+            canvas.addEventListener('mouseleave', handleInteractionEnd);
+            
+            function handleResize() {
+                width = window.innerWidth;
+                height = window.innerHeight;
+                canvas.width = width * dpr;
+                canvas.height = height * dpr;
+                canvas.style.width = `${width}px`;
+                canvas.style.height = `${height}px`;
+                ctx.scale(dpr, dpr);
+                vanishingPoint.x = width / 2;
+                vanishingPoint.y = height / 2;
+                vanishingPoint.targetX = width / 2;
+                vanishingPoint.targetY = height / 2;
+                ctx.fillStyle = '#000';
+                ctx.fillRect(0, 0, width, height);
+                console.log(`Canvas resized to ${width}x${height}`);
+            }
+            
+            window.addEventListener('resize', handleResize);
+
+            // --- SECTION 6: ANIMATION LOOP (NOW WITH 3D PROJECTION) ---
+            
+            /**
+             * This is the main engine loop, called every frame.
+             */
+            function animate() {
+                
+                // --- 1. Draw Background (The Fade Effect) ---
+                ctx.globalCompositeOperation = 'source-over';
+                ctx.globalAlpha = config.FADE_AMOUNT;
+                ctx.fillStyle = '#000';
+                ctx.fillRect(0, 0, width, height);
+                
+                // --- 2. Update State ---
+                hue = (hue + config.HUE_SPEED) % 360;
+                
+                // Smoothly move the "vanishing point"
+                vanishingPoint.x += (vanishingPoint.targetX - vanishingPoint.x) * config.ORIGIN_LERP_SPEED;
+                vanishingPoint.y += (vanishingPoint.targetY - vanishingPoint.y) * config.ORIGIN_LERP_SPEED;
+                
+                // --- 3. Spawn/Kill Particles ---
+                let newBorns = []; 
+                
+                // Respawn particles if we are below the configured count
+                if (particles.length < config.PARTICLE_COUNT) {
+                    for(let i = 0; i < config.SPAWN_PER_FRAME; i++) {
+                        // Spawn particles "deep" in the tunnel
+                        particles.push(new Particle(0, 0, config.FOCAL_LENGTH * 2, 0));
+                    }
+                }
+                
+                // --- 4. Prepare for Kaleidoscopic Drawing ---
+                ctx.globalCompositeOperation = 'lighter'; // Additive blending
+                ctx.lineCap = "round"; // Make lines smooth
+                
+                // --- 5. Update, Calculate, and Draw Particles ---
+                for (let i = particles.length - 1; i >= 0; i--) {
+                    const p = particles[i];
+                    
+                    // --- 5a. Check for Spawning ---
+                    if (p.isReadyToSpawn()) {
+                        p.spawnChildren(newBorns);
+                    }
+
+                    // --- 5b. Check for Death / Culling ---
+                    // If particle is dead OR it's gone "behind" us
+                    if (p.isDead() || p.pos.z < -config.FOCAL_LENGTH) {
+                        particles.splice(i, 1);
+                        continue; 
+                    }
+
+                    // --- 5c. Apply Behaviors ---
+                    const wanderForce = Vector3.random3D().mul(config.WANDER_STRENGTH);
+                    p.applyForce(wanderForce);
+                    
+                    // --- 5d. Apply Interaction Force (Attract/Repel) ---
+                    if (config.TOUCH_MODE === 'attract') {
+                        // Pull particles towards the "screen" (z=0)
+                        const pullForce = new Vector3(0, 0, -p.pos.z * config.PULL_STRENGTH);
+                        p.applyForce(pullForce);
+                    } 
+                    else if (config.TOUCH_MODE === 'repel' && isTouching) {
+                        // "Blast" particles *away* from the screen (positive z)
+                        const repelForce = new Vector3(
+                            (p.pos.x) * 0.01,
+                            (p.pos.y) * 0.01,
+                            1.5 // Constant "blast"
+                        );
+                        p.applyForce(repelForce);
+                    }
+
+                    // --- 5e. Update 3D Physics ---
+                    p.update();
+                    
+                    // --- 5f. THE 3D PROJECTION ---
+                    
+                    // 1. Project current 3D position to 2D
+                    let scale = config.FOCAL_LENGTH / (config.FOCAL_LENGTH + p.pos.z);
+                    if (scale < 0) continue; // Behind camera
+                    
+                    let projectedX = (p.pos.x * scale);
+                    let projectedY = (p.pos.y * scale);
+                    
+                    // 2. Project previous 3D position to 2D
+                    let prevScale = config.FOCAL_LENGTH / (config.FOCAL_LENGTH + p.prevPos.z);
+                    if (prevScale < 0) continue; // Behind camera
+                    
+                    let prevProjectedX = (p.prevPos.x * prevScale);
+                    let prevProjectedY = (p.prevPos.y * prevScale);
+                    
+                    // --- 5g. THE 2D KALEIDOSCOPE RENDERER ---
+                    
+                    // 1. Set visual properties based on 3D data
+                    const speed = p.vel.mag();
+                    const lightness = map(speed, 0, config.PARTICLE_SPEED * 2, 60, 90);
+                    const color = `hsl(${(hue + p.pos.z * 0.1) % 360}, 100%, ${lightness}%)`;
+                    
+                    // Lines are thicker when closer (scale > 1) and thinner when far
+                    ctx.lineWidth = Math.max(0.1, scale * 1.5); 
+                    ctx.strokeStyle = color;
+                    
+                    // 2. Get 2D polar coords
+                    let angle = Math.atan2(projectedY, projectedX);
+                    let radius = Math.sqrt(projectedX*projectedX + projectedY*projectedY);
+                    
+                    let prevAngle = Math.atan2(prevProjectedY, prevProjectedX);
+                    let prevRadius = Math.sqrt(prevProjectedX*prevProjectedX + prevProjectedY*prevProjectedY);
+                    
+                    // 3. Loop for each "fold" of the symmetry
+                    for (let j = 0; j < config.SYMMETRY_FOLDS; j++) {
+                        const foldAngle = j * FOLD_ANGLE;
+                        
+                        // Normal rotated line
+                        const x1 = vanishingPoint.x + Math.cos(angle + foldAngle) * radius;
+                        const y1 = vanishingPoint.y + Math.sin(angle + foldAngle) * radius;
+                        const x2 = vanishingPoint.x + Math.cos(prevAngle + foldAngle) * prevRadius;
+                        const y2 = vanishingPoint.y + Math.sin(prevAngle + foldAngle) * prevRadius;
+
+                        // Mirrored line
+                        const x1m = vanishingPoint.x + Math.cos(-angle + foldAngle) * radius;
+                        const y1m = vanishingPoint.y + Math.sin(-angle + foldAngle) * radius;
+                        const x2m = vanishingPoint.x + Math.cos(-prevAngle + foldAngle) * prevRadius;
+                        const y2m = vanishingPoint.y + Math.sin(-prevAngle + foldAngle) * prevRadius;
+
+                        // Draw the Lines
+                        ctx.beginPath();
+                        ctx.moveTo(x2, y2);
+                        ctx.lineTo(x1, y1);
+                        ctx.stroke();
+                        
+                        ctx.beginPath();
+                        ctx.moveTo(x2m, y2m);
+                        ctx.lineTo(x1m, y1m);
+                        ctx.stroke();
+                    }
+                }
+                
+                // --- 6. Add new children to the main array ---
+                // Only add if we're not over the cap
+                if (particles.length < config.PARTICLE_COUNT) {
+                     particles = particles.concat(newBorns);
+                }
+
+                // --- 7. Reset Context & Loop ---
+                ctx.globalAlpha = 1;
+                ctx.globalCompositeOperation = 'source-over';
+                
+                // --- 8. Update UI Display ---
+                particleCountDisplay.textContent = particles.length.toLocaleString();
+                
+                // Tell the browser we're ready for the next frame
+                requestAnimationFrame(animate);
+            }
+            
+            // --- SECTION 7: HELPER FUNCTION ---
+            
+            /** Map a value from one range to another */
+            function map(value, inMin, inMax, outMin, outMax) {
+                // *** THIS IS THE FIX ***
+                // The typo "IN" is now "inMin"
+                return (value - inMin) * (outMax - outMin) / (inMax - inMin) + outMin;
+            }
+            
+            // --- SECTION 8: START ---
+            
+            // Set the initial canvas
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, width, height);
+            
+            // Initialize the UI
+            setupUI();
+            
+            // Kick off the animation loop!
+            console.log("...Engine (v7-FIXED) is alive. Enjoy the ride.");
+            animate();
+            
+        })(); // End of the IIFE
+    </script>
+</body>
+</html>
+
